@@ -39,9 +39,9 @@ case class NastiBundleParameters(
   addrBits: Int,
   dataBits: Int,
   idBits:   Int) {
-  require(dataBits >= 8, s"AXI4 data bits must be >= 8 (got $dataBits)")
-  require(addrBits >= 1, s"AXI4 addr bits must be >= 1 (got $addrBits)")
-  require(idBits >= 1, s"AXI4 id bits must be >= 1 (got $idBits)")
+  require(dataBits >= 8, s"AXI4 data bits must be >= 8 (got $dataBits)")  // default: 64
+  require(addrBits >= 1, s"AXI4 addr bits must be >= 1 (got $addrBits)")  // default: 32
+  require(idBits >= 1, s"AXI4 id bits must be >= 1 (got $idBits)")        // default:  5
   require(isPow2(dataBits), s"AXI4 data bits must be pow2 (got $dataBits)")
 }
 

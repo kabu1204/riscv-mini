@@ -37,18 +37,32 @@ object CacheState extends ChiselEnum {
   val sIdle, sReadCache, sWriteCache, sWriteBack, sWriteAck, sRefillReady, sRefill = Value
 }
 
+/* 
+
+address:
+    31                                     12                    4       2      0
+    +--------------------------------------+---------------------+-------+------+
+    |                 tag                  |         set         | block | word |
+    +--------------------------------------+---------------------+-------+------+
+                                                                    |       |
+                                                                    |       v
+                                                                    |   byte offset
+                                                                    v
+                                                                which word
+ */
 class Cache(val p: CacheConfig, val nasti: NastiBundleParameters, val xlen: Int) extends Module {
   // local parameters
-  val nSets = p.nSets
-  val bBytes = p.blockBytes
-  val bBits = bBytes << 3
-  val blen = log2Ceil(bBytes)
-  val slen = log2Ceil(nSets)
-  val tlen = xlen - (slen + blen)
-  val nWords = bBits / xlen
-  val wBytes = xlen / 8
-  val byteOffsetBits = log2Ceil(wBytes)
-  val dataBeats = bBits / nasti.dataBits
+  val nSets = p.nSets  // default: 256
+  val bBytes = p.blockBytes  // default: 4 * 32 bits = 16B, cache line size
+  val bBits = bBytes << 3  // default: 128bit
+  val blen = log2Ceil(bBytes)  // default: 4, addr is byte-granularity, each bit represents a byte
+  val slen = log2Ceil(nSets)  // default: 8
+  // tag len
+  val tlen = xlen - (slen + blen)  // 32 - (8 + 4) = 20
+  val nWords = bBits / xlen  // 128 / 32 = 4, each cache line has 4 words
+  val wBytes = xlen / 8  // 4B
+  val byteOffsetBits = log2Ceil(wBytes) // 2
+  val dataBeats = bBits / nasti.dataBits  // nasti interface transfer 64bit each cycle
 
   val io = IO(new CacheModuleIO(nasti, addrWidth = xlen, dataWidth = xlen))
 
@@ -82,13 +96,13 @@ class Cache(val p: CacheConfig, val nasti: NastiBundleParameters, val xlen: Int)
   val ren_reg = RegNext(ren)
 
   val addr = io.cpu.req.bits.addr
-  val idx = addr(slen + blen - 1, blen)
-  val tag_reg = addr_reg(xlen - 1, slen + blen)
+  val idx = addr(slen + blen - 1, blen) // width: slen, which set
+  val tag_reg = addr_reg(xlen - 1, slen + blen) // width: tlen
   val idx_reg = addr_reg(slen + blen - 1, blen)
-  val off_reg = addr_reg(blen - 1, byteOffsetBits)
+  val off_reg = addr_reg(blen - 1, byteOffsetBits)  // which word
 
-  val rmeta = metaMem.read(idx, ren)
-  val rdata = Cat((dataMem.map(_.read(idx, ren).asUInt)).reverse)
+  val rmeta = metaMem.read(idx, ren)  // rmeta will be available next cloch, rmeta is the metadata of prev clock
+  val rdata = Cat((dataMem.map(_.read(idx, ren).asUInt)).reverse)  // rdata will be available next clock (posedge), so rdata is the data of prev clock
   val rdata_buf = RegEnable(rdata, ren_reg)
   val refill_buf = Reg(Vec(dataBeats, UInt(nasti.dataBits.W)))
   val read = Mux(is_alloc_reg, refill_buf.asUInt, Mux(ren_reg, rdata, rdata_buf))
@@ -97,6 +111,7 @@ class Cache(val p: CacheConfig, val nasti: NastiBundleParameters, val xlen: Int)
 
   // Read Mux
   io.cpu.resp.bits.data := VecInit.tabulate(nWords)(i => read((i + 1) * xlen - 1, i * xlen))(off_reg)
+  // equal to: io.cpu.resp.bits.data := read >> (off_reg << 5)
   io.cpu.resp.valid := is_idle || is_read && hit || is_alloc_reg && !cpu_mask.orR
 
   when(io.cpu.resp.valid) {

@@ -30,4 +30,4 @@ tests/64/*
 # Synopsys Verdi
 novas_dump.log
 ucli.key
-
+Tile.sv
